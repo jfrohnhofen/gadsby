@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Gadsby</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="handlebars.js"></script>
+    <script src="main.js"></script>
+  </head>
+  <body>
+    <div class="container-fluid">
+      <div class="row py-5 header">
+        <div id="input-group" class="col-8 offset-2">
+          <input type="text" id="search-box" class="form-control">
+          <div id="autocomplete" class="dropdown-menu" tabindex="-1"></div>
+          <div id="selected-tags"></div>
+        </div>
+      </div>
+      <div class="row">
+        <table class="table table-hover">
+          <thead class="thead-dark">
+            <tr>
+              <th scope="col">Aktenzeichen</th>
+              <th scope="col">Form</th>
+              <th scope="col">Datum</th>
+              <th scope="col">Entscheidung</th>
+              <th scope="col">BE/ERi</th>
+              <th scope="col">Sachgebiet</th>
+              <th scope="col">Gegenstand</th>
+              <th scope="col">Schlagworte</th>
+              <th scope="col">Kommentare</th>
+            </tr>
+          </thead>
+          <tbody id="results"></tbody>
+        </table>
+      </div>
+    </div>
+  </body>
+</html>
