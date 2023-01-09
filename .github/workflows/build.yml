@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout
-      - uses: actions/checkout@v3
+        uses: actions/checkout@v3
 
       - name: Install Go
         uses: actions/setup-go@v3
@@ -32,6 +32,7 @@ jobs:
           path: gadsby.exe
 
       - name: Create release
+        if: github.event_name == 'push'
         uses: marvinpinto/action-automatic-releases@v1.2.1
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
