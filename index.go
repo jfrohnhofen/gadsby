@@ -48,7 +48,8 @@ func NewIndex(dataPath string) (Index, error) {
 		}
 		document, err := ParseFile(filePath)
 		if err != nil {
-			return err
+			log.Printf("Could not parse document %s: %s", info.Name(), err)
+			return nil
 		}
 
 		document.Id = uint64(len(documents))
