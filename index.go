@@ -7,34 +7,43 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/blugelabs/bluge"
-	"github.com/blugelabs/bluge/search"
 )
+
+type Document struct {
+	Id           int      `json:"id"`
+	Reference    string   `json:"reference"`
+	DocumentType string   `json:"documentType"`
+	Date         string   `json:"date"`
+	Decision     string   `json:"decision"`
+	AuthorType   string   `json:"authorType"`
+	Author       string   `json:"author"`
+	Area         string   `json:"area"`
+	Subject      string   `json:"subject"`
+	Keywords     []string `json:"keywords"`
+	Comments     []string `json:"comments"`
+	Score        float64  `json:"score"`
+	Path         string   `json:"-"`
+}
 
 type Index struct {
 	reader    *bluge.Reader
-	tags      map[Tag][]uint64
+	tags      map[Tag][]int
 	documents []Document
 }
 
-type Result struct {
-	Score    float64  `json:"score"`
-	Document Document `json:"document"`
-	Loctions []uint64 `json:"locations"`
-}
-
-func NewIndex(dataPath string) (Index, error) {
+func BuildIndex(dataPath string) (Index, error) {
 	log.Println("Building index...")
+
+	index := Index{tags: map[Tag][]int{}}
 
 	writer, err := bluge.OpenWriter(bluge.InMemoryOnlyConfig())
 	if err != nil {
-		return Index{}, fmt.Errorf("creating index writer: %w", err)
+		return Index{}, fmt.Errorf("create writer: %w", err)
 	}
-
-	documents := []Document{}
-	tags := map[Tag][]uint64{}
 
 	if err := filepath.Walk(dataPath, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -46,41 +55,36 @@ func NewIndex(dataPath string) (Index, error) {
 		if path.Ext(info.Name()) != ".docx" {
 			return nil
 		}
-		document, err := ParseFile(filePath)
+		doc, tags, content, err := ParseDocument(filePath)
 		if err != nil {
-			return err
+			log.Printf("Failed to parse document %s: %s\n", info.Name(), err)
+			return nil
 		}
 
-		document.Id = uint64(len(documents))
-		documents = append(documents, document)
-		for _, tag := range document.Tags() {
-			tags[tag] = append(tags[tag], document.Id)
+		doc.Id = len(index.documents)
+		index.documents = append(index.documents, doc)
+		for _, tag := range tags {
+			index.tags[tag] = append(index.tags[tag], doc.Id)
 		}
 
-		blugeDoc := bluge.NewDocument(document.Path)
-		for field, values := range document.FullTextFields() {
-			for _, value := range values {
-				blugeDoc.AddField(bluge.NewTextField(field, value).HighlightMatches())
-			}
+		blugeDoc := bluge.Document{
+			bluge.NewStoredOnlyField("id", []byte(strconv.Itoa(doc.Id))),
+			bluge.NewTextField("content", content),
 		}
 		return writer.Insert(blugeDoc)
 	}); err != nil {
-		return Index{}, err
+		return index, fmt.Errorf("index document: %w", err)
 	}
 
-	reader, err := writer.Reader()
+	index.reader, err = writer.Reader()
 	if err != nil {
-		return Index{}, fmt.Errorf("creating index reader: %w", err)
+		return index, fmt.Errorf("create reader: %w", err)
 	}
 
-	return Index{
-		reader:    reader,
-		tags:      tags,
-		documents: documents,
-	}, nil
+	return index, nil
 }
 
-func (index Index) Tags() []Tag {
+func (index Index) GetTags() []Tag {
 	tags := []Tag{}
 	for tag := range index.tags {
 		tags = append(tags, tag)
@@ -88,62 +92,62 @@ func (index Index) Tags() []Tag {
 	return tags
 }
 
-func (index Index) Document(id uint64) Document {
-	return index.documents[id]
+func (index Index) GetDocumentPath(id int) (string, error) {
+	if id < len(index.documents) {
+		return index.documents[id].Path, nil
+	}
+	return "", fmt.Errorf("out of range")
 }
 
-func (index *Index) Query(query string, tags []Tag) ([]Result, error) {
-	posLists := [][]uint64{}
+func (index *Index) Query(query string, tags []Tag) ([]Document, error) {
+	matches := map[int]int{}
 	for _, tag := range tags {
-		posLists = append(posLists, index.tags[tag])
+		for _, id := range index.tags[tag] {
+			matches[id]++
+		}
 	}
 
-	scores := map[uint64]float64{}
-	locations := map[uint64][]search.FieldTermLocation{}
-
-	if query != "" {
+	var request bluge.SearchRequest
+	if query == "" {
+		request = bluge.NewAllMatches(bluge.NewMatchAllQuery())
+	} else {
 		blugeQuery := bluge.NewBooleanQuery()
 		for _, term := range strings.Split(query, " ") {
 			term = strings.ToLower(term)
-			for _, field := range FullTextFields {
-				blugeQuery.AddShould(bluge.NewPrefixQuery(term).SetField(field))
-				blugeQuery.AddShould(bluge.NewPrefixQuery(term).SetField(field))
-				blugeQuery.AddShould(bluge.NewPrefixQuery(term).SetField(field))
-			}
+			blugeQuery.AddShould(bluge.NewPrefixQuery(term).SetField("content"))
 		}
-		result, err := index.reader.Search(context.Background(), bluge.NewAllMatches(blugeQuery).IncludeLocations())
+		request = bluge.NewAllMatches(blugeQuery)
+	}
+
+	result, err := index.reader.Search(context.Background(), request)
+	if err != nil {
+		return nil, fmt.Errorf("bluge search: %w", err)
+	}
+
+	for match, err := result.Next(); match != nil || err != nil; match, err = result.Next() {
 		if err != nil {
-			return nil, fmt.Errorf("bluge search: %w", err)
+			return nil, fmt.Errorf("fetching result: %w", err)
 		}
 
-		posList := []uint64{}
-		for match, err := result.Next(); match != nil || err != nil; match, err = result.Next() {
-			if err != nil {
-				return nil, fmt.Errorf("get match: %w", err)
+		match.VisitStoredFields(func(field string, value []byte) bool {
+			if field == "id" {
+				id, err := strconv.Atoi(string(value))
+				if err == nil {
+					matches[id]++
+					index.documents[id].Score = match.Score
+				} else {
+					log.Printf("Failed to parse document id.\n")
+				}
 			}
-			posList = append(posList, match.Number)
-			scores[match.Number] = match.Score
-			locations[match.Number] = match.FieldTermLocations
-		}
-		posLists = append(posLists, posList)
+			return true
+		})
 	}
 
-	mergedPosLists := map[uint64]int{}
-	for _, posList := range posLists {
-		for _, pos := range posList {
-			mergedPosLists[pos]++
+	results := []Document{}
+	for id, count := range matches {
+		if count == len(tags)+1 {
+			results = append(results, index.documents[id])
 		}
 	}
-
-	results := []Result{}
-	for pos, count := range mergedPosLists {
-		if count == len(posLists) {
-			results = append(results, Result{
-				Document: index.documents[pos],
-				Score:    scores[pos],
-			})
-		}
-	}
-
 	return results, nil
 }

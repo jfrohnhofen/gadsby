@@ -4,21 +4,21 @@ const tmpl = {
     results: Handlebars.compile(`
         {{#each this}}
         <tr>
-            <th class="text-nowrap" scope="row"><a href="/download/{{this.document.id}}">{{this.document.reference}}</a></th>
-            <td class="text-nowrap">{{this.document.documentType}}</td>
-            <td class="text-nowrap">{{this.document.date}}</td>
-            <td class="text-nowrap">{{this.document.decision}}</td>
-            <td class="text-nowrap">{{this.document.authorType}}:&nbsp;{{this.document.author}}</td>
-            <td class="text-nowrap">{{this.document.area}}</td>
-            <td>{{this.document.subject}}</td>
+            <th class="text-nowrap" scope="row"><a href="/download/{{this.id}}">{{this.reference}}</a></th>
+            <td class="text-nowrap">{{this.documentType}}</td>
+            <td class="text-nowrap">{{this.date}}</td>
+            <td class="text-nowrap">{{this.decision}}</td>
+            <td class="text-nowrap">{{this.authorType}}:&nbsp;{{this.author}}</td>
+            <td class="text-nowrap">{{{this.area}}}</td>
+            <td>{{this.subject}}</td>
             <td>
-            {{#each this.document.keywords}}
-            {{this}}<br>
+            {{#each this.keywords}}
+            {{this}}{{#unless @last}}<br>{{/unless}}
             {{/each}}
             </td>
             <td>
-            {{#each this.document.comments}}
-            {{this}}<br>
+            {{#each this.comments}}
+            {{this}}{{#unless @last}}<br>{{/unless}}
             {{/each}}
             </td>
         </tr>
@@ -29,14 +29,14 @@ const tmpl = {
         {{#each this}}
             <div class="dropdown-item {{this.active}}" onclick="addTag({{this.index}});">
                 <span class="text-secondary">{{this.key}}</span>
-                <span>{{this.prefix}}<b>{{this.prompt}}</b>{{this.suffix}}</span>
+                <span>{{{this.prefix}}}<b>{{{this.prompt}}}</b>{{{this.suffix}}}</span>
             </div>
         {{/each}}
     `),
     tags: Handlebars.compile(`
         {{#each this}}
             <span class="badge badge-secondary font-weight-normal">
-                <span>{{this.key}}&nbsp;<b>{{this.value}}</b>&nbsp;</span><span class="x" onclick="removeTag({{this.index}});">&#x2715;</span>
+                <span>{{this.key}}&nbsp;<b>{{{this.value}}}</b>&nbsp;</span><span class="x" onclick="removeTag({{this.index}});">&#x2715;</span>
             </span>
         {{/each}}
     `),
@@ -87,6 +87,8 @@ function init() {
     ui.autocomplete.addEventListener('blur', (evt) => {
         ui.autocomplete.classList.remove('show');
     });
+
+    search();
 }
 
 function renderAutocomplete() {
@@ -131,7 +133,7 @@ function search() {
             tags: tags,
         }),
     }).then((response) => response.json()).then((data) => {
-        state.result = data;
+        state.result = data.sort((a, b) => a.score - b.score);
         renderResults();
     });
 }
