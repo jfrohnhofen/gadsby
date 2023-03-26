@@ -65,7 +65,7 @@ func ParseDocument(path string) (Document, []Tag, string, error) {
 	}
 
 	if _, err := time.Parse("02.01.2006", customProps["Datum"]); err != nil {
-		return Document{}, nil, "", fmt.Errorf("parsing data: %w", err)
+		customProps["Datum"] = ""
 	}
 
 	areaParts := []string{}
