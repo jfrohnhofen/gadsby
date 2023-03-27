@@ -55,14 +55,28 @@ func BuildIndex(dataPath string) (Index, error) {
 		if path.Ext(info.Name()) != ".docx" {
 			return nil
 		}
-		doc, tags, content, err := ParseDocument(filePath)
-		if err != nil {
-			log.Printf("Failed to parse document %s: %s\n", info.Name(), err)
+
+		log.Printf("[info] Parsing document %s", info.Name())
+		doc, tags, content, errs := ParseDocument(filePath)
+
+		if errs != nil {
+			if doc == nil {
+				log.Printf("[error] Parsing the document failed with a critical error. The document will not be indexed.")
+			} else {
+				log.Printf("[warn] There were problems while parsing the document. The document was indexed, but some information may be missing.")
+			}
+
+			for _, err := range errs {
+				log.Printf("    %s", err)
+			}
+		}
+
+		if doc == nil {
 			return nil
 		}
 
 		doc.Id = len(index.documents)
-		index.documents = append(index.documents, doc)
+		index.documents = append(index.documents, *doc)
 		for _, tag := range tags {
 			index.tags[tag] = append(index.tags[tag], doc.Id)
 		}

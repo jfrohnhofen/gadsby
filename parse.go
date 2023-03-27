@@ -5,7 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"log"
+	"path"
 	"strings"
 	"time"
 )
@@ -29,43 +29,51 @@ type properties struct {
 	Properties []property `xml:"property"`
 }
 
-func ParseDocument(path string) (Document, []Tag, string, error) {
-	log.Println("Parsing document", path)
-
-	zipFile, err := zip.OpenReader(path)
+func ParseDocument(filePath string) (doc *Document, tags []Tag, content string, errs []error) {
+	zipFile, err := zip.OpenReader(filePath)
 	if err != nil {
-		return Document{}, nil, "", fmt.Errorf("reading zip file: %w", err)
+		errs = append(errs, fmt.Errorf("reading zip file: %w", err))
+		return
 	}
 	defer zipFile.Close()
 
 	coreXml, err := zipFile.Open("docProps/core.xml")
 	if err != nil {
-		return Document{}, nil, "", fmt.Errorf("reading core.xml: %w", err)
+		errs = append(errs, fmt.Errorf("reading core.xml: %w", err))
+		return
 	}
 	defer coreXml.Close()
 
 	coreProps := coreProperties{}
 	coreDecoder := xml.NewDecoder(coreXml)
-	coreDecoder.Decode(&coreProps)
+	if err := coreDecoder.Decode(&coreProps); err != nil {
+		errs = append(errs, fmt.Errorf("decoding core.xml: %w", err))
+		return
+	}
+
+	customProps := map[string]string{}
 
 	customXml, err := zipFile.Open("docProps/custom.xml")
 	if err != nil {
-		return Document{}, nil, "", fmt.Errorf("reading custom.xml: %w", err)
-	}
-	defer customXml.Close()
+		errs = append(errs, fmt.Errorf("reading custom.xml: %w", err))
+	} else {
+		defer customXml.Close()
 
-	customDecoder := xml.NewDecoder(customXml)
-	props := properties{}
-	customDecoder.Decode(&props)
+		customDecoder := xml.NewDecoder(customXml)
+		props := properties{}
+		if err := customDecoder.Decode(&props); err != nil {
+			errs = append(errs, fmt.Errorf("decoding custom.xml: %w", err))
+		}
 
-	customProps := map[string]string{}
-	for _, prop := range props.Properties {
-		value := prop.Value
-		customProps[prop.Name] = value
-	}
+		for _, prop := range props.Properties {
+			value := prop.Value
+			customProps[prop.Name] = value
+		}
 
-	if _, err := time.Parse("02.01.2006", customProps["Datum"]); err != nil {
-		customProps["Datum"] = ""
+		if _, err := time.Parse("02.01.2006", customProps["Datum"]); err != nil {
+			errs = append(errs, fmt.Errorf("failed to parse data: %s", customProps["Datum"]))
+			customProps["Datum"] = ""
+		}
 	}
 
 	areaParts := []string{}
@@ -74,6 +82,11 @@ func ParseDocument(path string) (Document, []Tag, string, error) {
 		if part != "" {
 			areaParts = append(areaParts, part)
 		}
+	}
+	area := strings.Join(areaParts, " &#x25b8; ")
+
+	if area == "" {
+		area = path.Base(filePath)
 	}
 
 	keywords := []string{}
@@ -84,21 +97,21 @@ func ParseDocument(path string) (Document, []Tag, string, error) {
 		}
 	}
 
-	doc := Document{
+	doc = &Document{
 		Reference:    customProps["Aktenzeichen"],
 		DocumentType: customProps["DokumententypVisJustiz"],
 		Date:         customProps["Datum"],
 		Decision:     coreProps.ContentStatus,
 		AuthorType:   coreProps.Category,
 		Author:       coreProps.Creator,
-		Area:         strings.Join(areaParts, " &#x25b8; "),
+		Area:         area,
 		Subject:      coreProps.Title,
 		Keywords:     keywords,
 		Comments:     strings.Split(coreProps.Description, "\n"),
-		Path:         path,
+		Path:         filePath,
 	}
 
-	tags := []Tag{}
+	tags = []Tag{}
 	if doc.Reference != "" {
 		tags = append(tags, Tag{"Aktenzeichen", doc.Reference})
 	}
@@ -120,18 +133,20 @@ func ParseDocument(path string) (Document, []Tag, string, error) {
 
 	documentXml, err := zipFile.Open("word/document.xml")
 	if err != nil {
-		return Document{}, nil, "", fmt.Errorf("reading document.xml: %w", err)
+		errs = append(errs, fmt.Errorf("reading document.xml: %w", err))
+		return
 	}
 	defer documentXml.Close()
 
 	text, err := extractText(xml.NewDecoder(documentXml))
 	if err != nil {
-		return Document{}, nil, "", fmt.Errorf("extracting text: %w", err)
+		errs = append(errs, fmt.Errorf("extracting text: %w", err))
+		return
 	}
 
-	content := strings.Join(append(doc.Comments, doc.Subject, text), "\n")
+	content = strings.Join(append(doc.Comments, doc.Subject, text), "\n")
 
-	return doc, tags, content, nil
+	return
 }
 
 func extractText(decoder *xml.Decoder) (string, error) {
