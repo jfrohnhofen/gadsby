@@ -70,7 +70,9 @@ func main() {
 		fmt.Printf("downloading document %s\n", docPath)
 		ctx.Status(200)
 		ctx.Set(fiber.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="%s"`, path.Base(docPath)))
-		return ctx.SendFile(docPath)
+		err = ctx.SendFile(docPath)
+		fmt.Printf("send file: %s\n", err)
+		return err
 	})
 
 	log.Fatal(app.Listen(fmt.Sprintf(":%d", port)))
