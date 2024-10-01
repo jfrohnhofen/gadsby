@@ -67,6 +67,7 @@ func main() {
 		if err != nil {
 			return fmt.Errorf("get document: %w", err)
 		}
+		fmt.Printf("downloading document %s\n", docPath)
 		ctx.Status(200)
 		ctx.Set(fiber.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="%s"`, path.Base(docPath)))
 		return ctx.SendFile(docPath)
