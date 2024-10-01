@@ -1,6 +1,7 @@
 name: Go package
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -13,12 +14,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.18
+          go-version: '1.18'
 
       - name: Build
         run: go build -v ./...
@@ -26,14 +27,14 @@ jobs:
           GOOS: windows
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: gadsby
           path: gadsby.exe
 
       - name: Create release
         if: github.event_name == 'push'
-        uses: marvinpinto/action-automatic-releases@v1.2.1
+        uses: marvinpinto/action-automatic-releases@latest
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
           prerelease: false
