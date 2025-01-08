@@ -16,3 +16,7 @@ a:visited {
 .x {
     cursor: pointer;
 }
+
+.sorting:hover {
+    text-decoration: underline;
+}

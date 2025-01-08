@@ -2,28 +2,45 @@ document.addEventListener('DOMContentLoaded', init, false);
 
 const tmpl = {
     results: Handlebars.compile(`
-        {{#each this}}
-        <tr>
-            <th class="text-nowrap" scope="row"><a href="/download/{{this.id}}">{{this.reference}}</a></th>
-            <td class="text-nowrap">{{this.documentType}}</td>
-            <td class="text-nowrap">{{this.date}}</td>
-            <td class="text-nowrap">{{this.decision}}</td>
-            <td class="text-nowrap">{{this.authorType}}:&nbsp;{{this.author}}</td>
-            <td class="text-nowrap">{{{this.area}}}</td>
-            <td>{{this.subject}}</td>
-            <td>
-            {{#each this.keywords}}
-            {{this}}{{#unless @last}}<br>{{/unless}}
+        <table class="table table-hover">
+          <thead class="thead-dark">
+            <tr>
+              <th class="sorting text-nowrap" scope="col"><a onclick="updateSorting('reference')">Aktenzeichen {{arrow 'reference'}}</a></th>
+              <th class="sorting text-nowrap" scope="col"><a onclick="updateSorting('documentType')">Form {{arrow 'documentType'}}</a></th>
+              <th class="sorting text-nowrap" scope="col"><a onclick="updateSorting('date')">Datum {{arrow 'date'}}</a></th>
+              <th class="sorting text-nowrap" scope="col"><a onclick="updateSorting('decision')">Entscheidung {{arrow 'decision'}}</a></th>
+              <th scope="col">BE/ERi</th>
+              <th scope="col">Sachgebiet</th>
+              <th scope="col">Gegenstand</th>
+              <th scope="col">Schlagworte</th>
+              <th scope="col">Kommentare</th>
+            </tr>
+          </thead>
+          <tbody id="results">
+            {{#each this}}
+            <tr>
+                <th class="text-nowrap" scope="row"><a href="/download/{{this.id}}">{{this.reference}}</a></th>
+                <td class="text-nowrap">{{this.documentType}}</td>
+                <td class="text-nowrap">{{this.date}}</td>
+                <td class="text-nowrap">{{this.decision}}</td>
+                <td class="text-nowrap">{{this.authorType}}:&nbsp;{{this.author}}</td>
+                <td class="text-nowrap">{{{this.area}}}</td>
+                <td>{{this.subject}}</td>
+                <td>
+                {{#each this.keywords}}
+                {{this}}{{#unless @last}}<br>{{/unless}}
+                {{/each}}
+                </td>
+                <td>
+                {{#each this.comments}}
+                {{this}}{{#unless @last}}<br>{{/unless}}
+                {{/each}}
+                </td>
+            </tr>
             {{/each}}
-            </td>
-            <td>
-            {{#each this.comments}}
-            {{this}}{{#unless @last}}<br>{{/unless}}
-            {{/each}}
-            </td>
-        </tr>
-        {{/each}}
-        <tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+          </tbody>
+        </table>
     `),
     autocomplete: Handlebars.compile(`
         {{#each this}}
@@ -43,10 +60,14 @@ const tmpl = {
 };
 
 var state = {
+    sorting: {
+        column: 'date',
+        asc: false,
+    },
     tags: [],
     autocomplete: [],
     queryTags: new Set(),
-    result: null,
+    results: null,
 };
 var ui;
 
@@ -72,20 +93,26 @@ function init() {
         updateAutocomplete();
         renderAutocomplete();
     });
-    ui.input.addEventListener('blur', (evt) => {
+    ui.input.addEventListener('blur', evt => {
         if (evt.relatedTarget != ui.autocomplete) {
             ui.autocomplete.classList.remove('show');
         }
     });
-    ui.input.addEventListener('keypress', (evt) => {
+    ui.input.addEventListener('keypress', evt => {
         if (evt.key == 'Enter') {
             evt.preventDefault();
             search();
         }
     });
-
-    ui.autocomplete.addEventListener('blur', (evt) => {
+    ui.autocomplete.addEventListener('blur', evt => {
         ui.autocomplete.classList.remove('show');
+    });
+
+    Handlebars.registerHelper('arrow', col => {
+        if (state.sorting.column != col) {
+            return '';
+        }
+        return state.sorting.asc ? '▲' : '▼';
     });
 
     search();
@@ -114,7 +141,16 @@ function renderTags() {
 }
 
 function renderResults() {
-    ui.results.innerHTML = tmpl.results(state.result);
+    fn = (a, b) => (state.sorting.asc ? 1 : -1) * a[state.sorting.column].localeCompare(b[state.sorting.column]);
+    if (state.sorting.column == 'date') {
+        fn = (a, b) => {
+            [dayA, monthA, yearA] = a.date.split('.');
+            [dayB, monthB, yearB] = b.date.split('.');
+            return (state.sorting.asc ? 1 : -1) * (new Date(yearA, monthA-1, dayA) - new Date(yearB, monthB-1, dayB));
+        }
+    }
+    state.results = state.results.sort(fn);
+    ui.results.innerHTML = tmpl.results(state.results);
 }
 
 function search() {
@@ -126,14 +162,14 @@ function search() {
         method: 'POST',
         cache: 'no-cache',
         headers: {
-          'Content-Type': 'application/json',
+            'Content-Type': 'application/json',
         },
         body: JSON.stringify({
             query: ui.input.value,
             tags: tags,
         }),
     }).then((response) => response.json()).then((data) => {
-        state.result = data.sort((a, b) => a.score - b.score);
+        state.results = data;
         renderResults();
     });
 }
@@ -171,7 +207,7 @@ function updateAutocomplete() {
 
 function addTag(idx) {
     state.queryTags.add(idx);
-    renderTags(); 
+    renderTags();
 
     query = ui.input.value;
     caretPos = ui.input.selectionStart;
@@ -189,4 +225,14 @@ function removeTag(idx) {
     state.queryTags.delete(idx);
     renderTags();
     search();
+}
+
+function updateSorting(col) {
+    if (state.sorting.column == col) {
+        state.sorting.asc = !state.sorting.asc;
+    } else {
+        state.sorting.column = col;
+        state.sorting.asc = true;
+    }
+    renderResults();
 }

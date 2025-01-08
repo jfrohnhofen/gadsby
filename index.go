@@ -150,7 +150,7 @@ func (index *Index) Query(query string, tags []Tag) ([]Document, error) {
 					matches[id]++
 					index.documents[id].Score = match.Score
 				} else {
-					log.Printf("Failed to parse document id.\n")
+					log.Printf("[error] Failed to parse document id.\n")
 				}
 			}
 			return true
