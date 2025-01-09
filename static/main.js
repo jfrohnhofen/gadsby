@@ -141,13 +141,25 @@ function renderTags() {
 }
 
 function renderResults() {
-    fn = (a, b) => (state.sorting.asc ? 1 : -1) * a[state.sorting.column].localeCompare(b[state.sorting.column]);
-    if (state.sorting.column == 'date') {
-        fn = (a, b) => {
-            [dayA, monthA, yearA] = a.date.split('.');
-            [dayB, monthB, yearB] = b.date.split('.');
-            return (state.sorting.asc ? 1 : -1) * (new Date(yearA, monthA-1, dayA) - new Date(yearB, monthB-1, dayB));
-        }
+    switch (state.sorting.column) {
+        case 'reference':
+            fn = (a, b) => {
+                partsA = a.reference.split(/[ /]/);
+                scoreA = +partsA.at(-2) * 10000 + +partsA.at(-3);
+                partsB = b.reference.split(/[ /]/);
+                scoreB = +partsB.at(-2) * 10000 + +partsB.at(-3);
+                return (state.sorting.asc ? 1 : -1) * (scoreA - scoreB);
+            }
+            break;
+        case 'date':
+            fn = (a, b) => {
+                [dayA, monthA, yearA] = a.date.split('.');
+                [dayB, monthB, yearB] = b.date.split('.');
+                return (state.sorting.asc ? 1 : -1) * (new Date(yearA, monthA - 1, dayA) - new Date(yearB, monthB - 1, dayB));
+            }
+            break;
+        default:
+            fn = (a, b) => (state.sorting.asc ? 1 : -1) * a[state.sorting.column].localeCompare(b[state.sorting.column]);
     }
     state.results = state.results.sort(fn);
     ui.results.innerHTML = tmpl.results(state.results);
