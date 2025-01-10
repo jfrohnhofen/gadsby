@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 )
+
+var referenceRx = regexp.MustCompile(`^\d+\s+[A-Za-z]+\s+(\d+)\/(\d+)(\s+[A-Za-z]+)?$`)
 
 type coreProperties struct {
 	Title         string `xml:"title"`
@@ -95,6 +98,10 @@ func ParseDocument(filePath string) (doc *Document, tags []Tag, content string, 
 		if keyword != "" {
 			keywords = append(keywords, keyword)
 		}
+	}
+
+	if !referenceRx.MatchString(customProps["Aktenzeichen"]) {
+		errs = append(errs, fmt.Errorf("document reference '%s' has unexpected format", customProps["Aktenzeichen"]))
 	}
 
 	doc = &Document{

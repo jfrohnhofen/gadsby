@@ -143,13 +143,9 @@ function renderTags() {
 function renderResults() {
     switch (state.sorting.column) {
         case 'reference':
-            fn = (a, b) => {
-                partsA = a.reference.split(/[ /]/);
-                scoreA = +partsA.at(-2) * 10000 + +partsA.at(-3);
-                partsB = b.reference.split(/[ /]/);
-                scoreB = +partsB.at(-2) * 10000 + +partsB.at(-3);
-                return (state.sorting.asc ? 1 : -1) * (scoreA - scoreB);
-            }
+            fn = (a, b) => (state.sorting.asc ? 1 : -1) * [a, b]
+                .map(x => (m = x.reference.match(/^\d+\s+[A-Za-z]+\s+(\d+)\/(\d+)(\s+[A-Za-z]+)?$/)) ? +m[2] * 100000 + +m[1] : 0)
+                .reduce((acc, cur) => cur - acc, 0);
             break;
         case 'date':
             fn = (a, b) => {
