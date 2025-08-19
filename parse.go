@@ -40,6 +40,21 @@ func ParseDocument(filePath string) (doc *Document, tags []Tag, content string, 
 	}
 	defer zipFile.Close()
 
+	documentXml, err := zipFile.Open("word/document.xml")
+	if err != nil {
+		errs = append(errs, fmt.Errorf("reading document.xml: %w", err))
+		return
+	}
+	defer documentXml.Close()
+
+	paragraphs, err := extractText(xml.NewDecoder(documentXml))
+	if err != nil {
+		errs = append(errs, fmt.Errorf("extracting paragraphs: %w", err))
+		return
+	}
+
+	date := tryExtractDate(paragraphs)
+
 	coreXml, err := zipFile.Open("docProps/core.xml")
 	if err != nil {
 		errs = append(errs, fmt.Errorf("reading core.xml: %w", err))
@@ -73,9 +88,12 @@ func ParseDocument(filePath string) (doc *Document, tags []Tag, content string, 
 			customProps[prop.Name] = value
 		}
 
-		if _, err := time.Parse("02.01.2006", customProps["Datum"]); err != nil {
-			errs = append(errs, fmt.Errorf("failed to parse data: %s", customProps["Datum"]))
-			customProps["Datum"] = ""
+		if date == "" {
+			if _, err := time.Parse("02.01.2006", customProps["Datum"]); err != nil {
+				errs = append(errs, fmt.Errorf("failed to parse data: %s", customProps["Datum"]))
+			} else {
+				date = customProps["Datum"]
+			}
 		}
 	}
 
@@ -107,7 +125,7 @@ func ParseDocument(filePath string) (doc *Document, tags []Tag, content string, 
 	doc = &Document{
 		Reference:    customProps["Aktenzeichen"],
 		DocumentType: customProps["DokumententypVisJustiz"],
-		Date:         customProps["Datum"],
+		Date:         date,
 		Decision:     coreProps.ContentStatus,
 		AuthorType:   coreProps.Category,
 		Author:       coreProps.Creator,
@@ -138,44 +156,83 @@ func ParseDocument(filePath string) (doc *Document, tags []Tag, content string, 
 		tags = append(tags, Tag{"Sachgebiet", strings.Join(areaParts[:i+1], " &#x25B8; ")})
 	}
 
-	documentXml, err := zipFile.Open("word/document.xml")
-	if err != nil {
-		errs = append(errs, fmt.Errorf("reading document.xml: %w", err))
-		return
-	}
-	defer documentXml.Close()
-
-	text, err := extractText(xml.NewDecoder(documentXml))
-	if err != nil {
-		errs = append(errs, fmt.Errorf("extracting text: %w", err))
-		return
-	}
-
-	content = strings.Join(append(doc.Comments, doc.Subject, text), "\n")
+	content = strings.Join(append(doc.Comments, doc.Subject, strings.Join(paragraphs, " ")), "\n")
 
 	return
 }
 
-func extractText(decoder *xml.Decoder) (string, error) {
-	text := ""
-	expectText := false
-
+func extractText(decoder *xml.Decoder) ([]string, error) {
 	token, err := decoder.Token()
+
+	paragraphs := []string{}
+	vanish := false
+	run := ""
+	stack := []xml.Name{}
+
 	for ; err == nil; token, err = decoder.Token() {
-		if expectText {
-			data, ok := token.(xml.CharData)
-			if !ok {
-				return "", fmt.Errorf("expected character data")
+		switch el := token.(type) {
+		case xml.StartElement:
+			stack = append([]xml.Name{el.Name}, stack...)
+			if el.Name.Local == "vanish" {
+				vanish = true
 			}
-			text = text + string(data) + " "
-			expectText = false
-		} else {
-			elem, ok := token.(xml.StartElement)
-			expectText = ok && elem.Name.Local == "t"
+		case xml.EndElement:
+			if len(stack) == 0 {
+				return nil, fmt.Errorf("unexpected end element token")
+			}
+			if stack[0] != el.Name {
+				return nil, fmt.Errorf("incorrect end element token")
+			}
+			stack = stack[1:]
+			switch el.Name.Local {
+			case "p":
+				paragraphs = append(paragraphs, run)
+				run = ""
+			case "r":
+				vanish = false
+			}
+		case xml.CharData:
+			if !vanish && len(stack) > 0 && stack[0].Local == "t" {
+				run += string(el)
+			}
 		}
 	}
+
 	if err != io.EOF {
-		return "", err
+		return nil, err
+	} else {
+		return paragraphs, nil
 	}
-	return text, nil
+}
+
+func tryExtractDate(paragraphs []string) string {
+	months := map[string]string{
+		"Januar":    "Jan",
+		"Februar":   "Feb",
+		"März":      "Mar",
+		"April":     "Apr",
+		"Mai":       "May",
+		"Juni":      "Jun",
+		"Juli":      "Jul",
+		"August":    "Aug",
+		"September": "Sep",
+		"Oktober":   "Oct",
+		"November":  "Nov",
+		"Dezember":  "Dec",
+	}
+	rx := regexp.MustCompile(`am +((0|1|2|3)?\d\. (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) 20\d\d)`)
+
+	for _, text := range paragraphs {
+		for de, en := range months {
+			text = strings.ReplaceAll(text, de, en)
+		}
+		text = strings.Join(strings.Fields(text), " ")
+		if match := rx.FindStringSubmatch(text); match != nil {
+			if date, err := time.Parse("2. Jan 2006", match[1]); err == nil {
+				return date.Format("02.01.2006")
+			}
+		}
+	}
+
+	return ""
 }
